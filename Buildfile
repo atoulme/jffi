@@ -4,6 +4,7 @@ repositories.remote = ["http://repo1.maven.org/maven2"]
 
 VERSION_NUMBER = "1.0.0.001-SNAPSHOT"
 
+
 # Determines the CPU
 # from the Ruby os.arch 
 def determine_cpu
@@ -13,10 +14,11 @@ end
 # Returns the make executable
 # depending on the OS
 def make
-  case determine_cpu
-  when /FreeBSD/, /OpenBSD/, /AIX/ then
+  cpu = determine_cpu
+  case 
+  when cpu.match(/FreeBSD/) || cpu.match(/OpenBSD/) || cpu.match(/AIX/) then
     return "gmake"
-  when /SunOS/ then
+  when cpu.match(/SunOS/)  then
     return "/usr/sfw/bin/gmake"
   else
     return "make"
@@ -68,10 +70,48 @@ FILE
 
   end
 
+  native_testlib = file(_('target/cpptest')).enhance [native_compilation] do |test|
+    system "#{make} JAVA_HOME=$JAVA_HOME BUILDR_DIR='#{_('target')}' CPU=#{determine_cpu} -f #{_('libtest/GNUmakefile')}"
+  end
   
+  #build-platform-jar
+  package(:jar, :classifier=>determine_cpu).tap do |jar|
+    jar.include(_('target/native/jffi*.dll'), :path => "jni/#{determine_cpu}")
+    jar.include(_('target/native/libjffi*.so'), :path => "jni/#{determine_cpu}")
+    jar.include(_('target/native/libjffi*.jnilib'), :path => "jni/#{determine_cpu}")
+    jar.include(_('target/native/libjffi*.dylib'), :path => "jni/#{determine_cpu}")
+    jar.include(_('target/native/libjffi*.a'), :path => "jni/#{determine_cpu}")
+  end
+    
+  
+  
+  # Copy the jar so that it can be committed.
+  package(:jar).enhance do
+    cp package(:jar, :classifier=>determine_cpu).to_s, "archive"
+  end
+  
+  package(:jar).tap do |jar|
+    #assemble-native-jar
+    # we don't create native.jar, we move directly to merge.
+    jar.merge("archive/jffi-Darwin.jar")
+    jar.merge("archive/jffi-i386-Windows.jar")
+    jar.merge("archive/jffi-i386-Linux.jar")
+    jar.merge("archive/jffi-i386-SunOS.jar")
+    jar.merge("archive/jffi-x86_64-SunOS.jar")
+    jar.merge("archive/jffi-x86_64-Linux.jar")
+    jar.merge("archive/jffi-s390x-Linux.jar")
+    jar.merge("archive/jffi-sparc-SunOS.jar")
+    jar.merge("archive/jffi-sparcv9-SunOS.jar")
+    jar.merge("archive/jffi-ppc-AIX.jar")
+    jar.merge("archive/jffi-ppc-Linux.jar")
+    jar.merge(package(:jar, :classifier=>determine_cpu).to_s)
+  end
+
   # Decide how we chain
   compile.enhance [generate_version]
   headers.enhance [compile]
   build.enhance [native_compilation]
+  test.enhance [native_testlib]
   
+  package(:jar).enhance [package(:jar, :classifier=>determine_cpu)]
 end
