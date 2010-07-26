@@ -4,17 +4,48 @@ repositories.remote = ["http://repo1.maven.org/maven2"]
 
 VERSION_NUMBER = "1.0.0.001-SNAPSHOT"
 
-
+def determine_os
+  unless @os
+    @os = case
+    when Config::CONFIG['host_os'] =~ /mswin|mingw/
+      "Windows"
+    else
+      Config::CONFIG['host_os']
+    end
+  end
+  @os
+end      
+          
+def determine_cpu
+  unless @cpu
+    @cpu = case
+    when Config::CONFIG['host_cpu'] =~ /x86/ || Config::CONFIG['host_cpu'] =~ /i386/
+      "i386"
+    when Config::CONFIG['host_cpu'] =~ /powerpc/
+      "ppc"
+    else 
+      Config::CONFIG['host_cpu']
+    end          
+  end
+end       
+          
 # Determines the CPU
 # from the Ruby os.arch 
-def determine_cpu
-  RUBY_PLATFORM # very much TODO
+def determine_arch
+  unless @arch_cpu
+    if Config::CONFIG['host_os'] =~ /darwin/
+      @arch_cpu = "Darwin"
+    else
+      @arch_cpu = "#{determine_cpu}-#{determine_os}"
+    end
+  end
+  @arch_cpu
 end
 
 # Returns the make executable
 # depending on the OS
 def make
-  cpu = determine_cpu
+  cpu = determine_arch
   case 
   when cpu.match(/FreeBSD/) || cpu.match(/OpenBSD/) || cpu.match(/AIX/) then
     return "gmake"
@@ -66,28 +97,29 @@ FILE
     puts "Compile the C files"
     mkdir_p cpp.to_s
     
-    system "#{make} JAVA_HOME=$JAVA_HOME SRC_DIR='#{_('jni')}' JNI_DIR='#{_('jni')}' BUILDR_DIR='#{_('target/jni')}' CPU=#{determine_cpu} VERSION=#{VERSION_NUMBER.split('.')[0..1].to_s} USE_SYSTEM_LIBFFI=0 -f #{_('jni/GNUmakefile')}"
+    system "#{make} JAVA_HOME=$JAVA_HOME SRC_DIR='#{_('jni')}' JNI_DIR='#{_('jni')}' BUILDR_DIR='#{_('target/jni')}' CPU=#{determine_arch} VERSION=#{VERSION_NUMBER.split('.')[0..1].to_s} USE_SYSTEM_LIBFFI=0 -f #{_('jni/GNUmakefile')}"
 
   end
 
   native_testlib = file(_('target/cpptest')).enhance [native_compilation] do |test|
-    system "#{make} JAVA_HOME=$JAVA_HOME BUILDR_DIR='#{_('target')}' CPU=#{determine_cpu} -f #{_('libtest/GNUmakefile')}"
+    system "#{make} JAVA_HOME=$JAVA_HOME BUILDR_DIR='#{_('target')}' CPU=#{determine_arch} -f #{_('libtest/GNUmakefile')}"
+    fail "Could not compile native testlib" unless $?.success?
   end
   
   #build-platform-jar
-  package(:jar, :classifier=>determine_cpu).tap do |jar|
-    jar.include(_('target/native/jffi*.dll'), :path => "jni/#{determine_cpu}")
-    jar.include(_('target/native/libjffi*.so'), :path => "jni/#{determine_cpu}")
-    jar.include(_('target/native/libjffi*.jnilib'), :path => "jni/#{determine_cpu}")
-    jar.include(_('target/native/libjffi*.dylib'), :path => "jni/#{determine_cpu}")
-    jar.include(_('target/native/libjffi*.a'), :path => "jni/#{determine_cpu}")
+  package(:jar, :classifier=>determine_arch).tap do |jar|
+    jar.include(_('target/native/jffi*.dll'), :path => "jni/#{determine_arch}")
+    jar.include(_('target/native/libjffi*.so'), :path => "jni/#{determine_arch}")
+    jar.include(_('target/native/libjffi*.jnilib'), :path => "jni/#{determine_arch}")
+    jar.include(_('target/native/libjffi*.dylib'), :path => "jni/#{determine_arch}")
+    jar.include(_('target/native/libjffi*.a'), :path => "jni/#{determine_arch}")
   end
     
   
   
   # Copy the jar so that it can be committed.
   package(:jar).enhance do
-    cp package(:jar, :classifier=>determine_cpu).to_s, "archive"
+    cp package(:jar, :classifier=>determine_arch).to_s, "archive/jffi-#{determine_arch}.jar"
   end
   
   package(:jar).tap do |jar|
@@ -104,7 +136,7 @@ FILE
     jar.merge("archive/jffi-sparcv9-SunOS.jar")
     jar.merge("archive/jffi-ppc-AIX.jar")
     jar.merge("archive/jffi-ppc-Linux.jar")
-    jar.merge(package(:jar, :classifier=>determine_cpu).to_s)
+    jar.merge(package(:jar, :classifier=>determine_arch).to_s)
   end
 
   # Decide how we chain
@@ -113,5 +145,5 @@ FILE
   build.enhance [native_compilation]
   test.enhance [native_testlib]
   
-  package(:jar).enhance [package(:jar, :classifier=>determine_cpu)]
+  package(:jar).enhance [package(:jar, :classifier=>determine_arch)]
 end
